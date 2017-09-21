@@ -11,11 +11,7 @@ function bbconnect_work_queues_tab(array $tabs) {
 add_action('bbconnect_admin_profile_work_queues', 'bbconnect_user_work_queues');
 function bbconnect_user_work_queues() {
     global $user_id;
-    $tasks = bbconnect_workqueues_get_todos($user_id);
-    $groups = array();
-    foreach ($tasks as $task) {
-        $form = GFAPI::get_form($task['form_id']);
-        $groups[$task['work_queue'].' ('.$form['title'].')'][] = $task;
-    }
-    bbconnect_workqueues_output_action_items($groups);
+    $selected_queue = isset($_GET['queue']) ? urldecode($_GET['queue']) : null;
+    $selected_form = isset($_GET['form_id']) ? $_GET['form_id'] : 0;
+    bbconnect_workqueues_output_action_items(bbconnect_workqueues_get_todos($user_id, $selected_queue, $selected_form));
 }

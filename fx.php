@@ -19,7 +19,7 @@ function bbconnect_workqueues_get_queue_list() {
     return array_keys($queues);
 }
 
-function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $form_id = 0) {
+function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $form_id = 0, $sorting = null) {
     $search_criteria = array(
             'field_filters' => array(
                     array(
@@ -40,14 +40,34 @@ function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $fo
                 'value' => $work_queue,
         );
     }
+
+    if (is_null($sorting)) {
+        if (!empty($_GET['orderby'])) {
+            $orderby = $_GET['orderby'];
+            $order = 'desc';
+        } else {
+            $orderby = 'date_created';
+            $order = 'asc';
+        }
+        if (!empty($_GET['order']) && in_array($_GET['order'], array('asc', 'desc'))) {
+            $order = $_GET['order'];
+        }
+
+        $sorting = array(
+                'key' => $orderby,
+                'direction' => $order,
+        );
+    }
+
     $offset = 0;
     $page_size = 100;
     $entries = array();
     do {
         $paging = array('offset' => $offset, 'page_size' => $page_size);
-        $entries += GFAPI::get_entries($form_id, $search_criteria, null, $paging, $total_count);
+        $entries += GFAPI::get_entries($form_id, $search_criteria, $sorting, $paging, $total_count);
         $offset += $page_size;
     } while ($offset < $total_count);
+
     return $entries;
 }
 
@@ -66,78 +86,269 @@ function bbconnect_workqueues_insert_action_note($user_id, $title, $description,
     GFAPI::submit_form($action_form_id, $entry);
 }
 
-function bbconnect_workqueues_output_action_items($groups) {
-    echo '<div class="column_holder actions-history-holder">'."\n";
+function bbconnect_workqueues_get_sorting_args($field, $order = 'asc', &$current_sort) {
+    $sorting = array(
+            'orderby' => $field,
+    );
+    if ($order != 'desc') { // Sanity check
+        $order = 'asc';
+    }
+    $current_sort = $order == 'asc' ? 'desc' : 'asc';
+    if (!empty($_GET['order'])) {
+        if ($_GET['orderby'] == $field && $_GET['order'] == $order) {
+            $current_sort = $order;
+            $order = $order == 'asc' ? 'desc' : 'asc';
+        }
+    }
+    $sorting['order'] = $order;
+    return $sorting;
+}
+
+function bbconnect_workqueues_output_action_items($tasks) {
     // First some custom styles
 ?>
 <style type="text/css">
-.column_holder {clear: both;}
-h1 {clear: both; font-size: 1.1rem; line-height: 2rem; margin-bottom: 0; padding-bottom: 0.2rem; vertical-align: top;}
-h1 a.button.action {float: right;}
+.tablenav a.button.dobulkaction {display: inline-block;}
 table.action_items {width: 100%;}
 table.action_items th {text-align: left; width: 30%;}
 #comments {min-width: 65%; width: 65%;}
 </style>
 <?php
     add_thickbox(); // Make sure modal library is loaded
-    foreach ($groups as $heading => $tasks) {
-        $task_ids = array();
-        $modal_id = 'a'.preg_replace('/[^a-z0-9]/', '', strtolower($heading));
-        $url = ( empty( $_GET['user_id'] ) ) ? '/wp-admin/users.php?page=bbconnect_edit_user&user_id='.$tasks[0]['created_by'].'&tab=work_queues' : '/wp-admin/users.php?page=work_queues_submenu&queue='.urlencode($tasks[0]['work_queue']).'&form_id='.$tasks[0]['form_id'];
-        echo '<h1><a href="'.$url.'">'.$heading.'</a> <a href="#TB_inline?width=600&height=550&inlineId='.$modal_id.'" class="thickbox button action" style="float: right;">Act</a></h1>'."\n";
-        echo '<table class="wp-list-table widefat striped action_items">'."\n";
-        echo '     <thead>'."\n";
-        echo '        <tr>'."\n";
-        echo '            <th style="" class="manage-column column-title" id="title" scope="col">Created</th>'."\n";
-        echo '            <th style="" class="manage-column column-comments" id="comments" scope="col">Details</th>'."\n";
-        echo '        </tr>'."\n";
-        echo '    </thead>'."\n";
-        echo '    <tbody id="the-list">'."\n";
-        foreach ($tasks as $task) {
-            if (is_array($task)) {
-                $task_ids[] = $task['id'];
-                echo '<tr class="type-page status-publish hentry iedit author-other level-0" id="note-'.$task['id'].'">'."\n";
-                echo '  <td class="post-title page-title column-title">'.$task['date_created'].'</td>'."\n";
-                echo '  <td class="">'.$task['action_description'].'</td>'."\n";
-                echo '</tr>'."\n";
+    $queues = bbconnect_workqueues_get_queues();
+    $datetime_format = get_option('date_format').' '.get_option('time_format');
+    $selected_queue = urldecode($_GET['queue']);
+    $selected_form = $_GET['form_id'];
+    $selected_user = $_GET['user']; // User filter, NOT user profile
+    $orderby = 'date_created';
+    $order = 'asc';
+    $page_size = 50;
+    $paged = max(1, (int)$_GET['paged']);
+    $total_pages = ceil(count($tasks)/$page_size);
+    if (!empty($_GET['orderby'])) {
+        $orderby = $_GET['orderby'];
+    }
+    if (!empty($_GET['order']) && in_array($_GET['order'], array('asc', 'desc'))) {
+        $order = $_GET['order'];
+    }
+    echo '<form id="posts-filter" method="get">'."\n";
+    echo '    <input type="hidden" name="orderby" value="'.$orderby.'">'."\n";
+    echo '    <input type="hidden" name="order" value="'.$order.'">'."\n";
+    echo '    <input type="hidden" name="page" value="'.$_GET['page'].'">'."\n";
+    if (!empty($_GET['user_id'])) {
+        echo '    <input type="hidden" name="user_id" value="'.$_GET['user_id'].'">'."\n";
+        echo '    <input type="hidden" name="tab" value="'.$_GET['tab'].'">'."\n";
+    }
+    echo '    <div class="tablenav top">'."\n";
+    echo '        <div class="alignleft actions bulkactions">'."\n";
+    echo '            <label for="bulk-action-selector-top" class="screen-reader-text">Select bulk action</label>'."\n";
+    echo '            <select name="action" id="bulk-action-selector-top">'."\n";
+    echo '                <option value="-1">Bulk Actions</option>'."\n";
+    echo '                <option value="action" class="hide-if-no-js">Action</option>'."\n";
+    echo '            </select>'."\n";
+    echo '            <input type="hidden" name="selected_tasks" id="selected_tasks" value="">'."\n";
+    echo '            <a href="#TB_inline?width=600&height=550&inlineId=work_queue_action_modal" class="thickbox button action dobulkaction">Apply</a>'."\n";
+    echo '        </div>'."\n";
+    echo '        <div class="alignleft actions">'."\n";
+    echo '            <label for="filter-by-work-queue" class="screen-reader-text">Filter by work queue</label>'."\n";
+    echo '            <input type="hidden" id="form_id" name="form_id" value="'.$selected_form.'">'."\n";
+    echo '            <select name="queue" id="queue">'."\n";
+    echo '                <option value="" data-form-id="">All Work Queues</option>';
+    $users = array();
+    foreach ($queues as $queue_name => $forms) {
+        foreach ($forms as $form_id => $queue_tasks) {
+            $form = GFAPI::get_form($form_id);
+            echo '                <option value="'.urlencode($queue_name).'" data-form-id="'.$form_id.'" '.selected($selected_queue.'#'.$selected_form, $queue_name.'#'.$form_id).'>'.$queue_name.' ('.$form['title'].')</option>'."\n";
+            foreach ($queue_tasks as $queue_task) {
+                if (!isset($users[$queue_task['created_by']])) {
+                    $user = get_userdata($queue_task['created_by']);
+                    $users[$queue_task['created_by']] = $user->display_name.' ('.$user->user_email.')';
+                }
             }
         }
-        echo '    </tbody>'."\n";
-        echo '</table>'."\n";
-
-        // Now the modal
-        $function_name = $modal_id.'_action_submit';
-?>
-        <div id="<?php echo $modal_id; ?>" style="display: none;">
-            <div>
-                <h2><?php echo $heading; ?>: Actioning <?php echo count($tasks); ?> item(s)</h2>
-                <form action="" method="post">
-                    <div class="modal-row"><label for="note_content">Comments:</label><textarea id="<?php echo $modal_id ?>_comments" name="<?php echo $modal_id ?>_comments" rows="10"></textarea></div>
-                    <input type="submit" class="button action" onclick="return <?php echo $function_name; ?>();">
-                </form>
-            </div>
-        </div>
-        <script type="text/javascript">
-            function <?php echo $function_name; ?>() {
-                var data = {
-                        'action': 'close_action_notes',
-                        'comments': jQuery('textarea[name=<?php echo $modal_id; ?>_comments]').val(),
-                        'tasks': '<?php echo implode(',', $task_ids); ?>'
-                };
-            	jQuery.post(ajaxurl, data, function(response) {
-        			if (response == 0) {
-                        tb_remove();
-                        window.location.reload();
-        			} else {
-            			alert(response);
-        			}
-        		});
-                return false;
-            }
-        </script>
-<?php
     }
-    echo '</div>'."\n";
+    echo '            </select>';
+    if (empty($_GET['user_id'])) {
+        asort($users, SORT_FLAG_CASE | SORT_STRING);
+        echo '            <select name="user" id="user">'."\n";
+        echo '                <option value="">All Users</option>';
+        foreach ($users as $user_id => $user_label) {
+            echo '            <option value="'.$user_id.'" '.selected($selected_user, $user_id).'>'.$user_label.'</option>'."\n";
+        }
+        echo '            </select>'."\n";
+    }
+    echo '            <input name="filter_action" id="post-query-submit" class="button" value="Filter" type="submit">'."\n";
+    echo '        </div>'."\n";
+    echo '        <h2 class="screen-reader-text">Pages list navigation</h2>'."\n";
+    echo '        <div class="tablenav-pages">'."\n";
+    echo '            <span class="displaying-num">'.count($tasks).' items</span>'."\n";
+    $big = 99999999;
+    echo paginate_links(array(
+            'base' => str_replace($big, '%#%', esc_url(get_pagenum_link($big))),
+            'format' => '?paged=%#%',
+            'current' => $paged,
+            'total' => $total_pages,
+            'before_page_number' => '<span class="screen-reader-text">Page </span>'
+    ));
+    echo '        </div>'."\n";
+    echo '    </div>'."\n";
+
+    $col_count = 0;
+    ob_start();
+    echo '            <tr>'."\n";
+    $col_count++;
+    echo '                <td id="cb" class="manage-column column-cb check-column"><input id="cb-select-all-1" type="checkbox"></td>'."\n";
+    $url = add_query_arg(bbconnect_workqueues_get_sorting_args('work_queue', 'asc', $sort_class));
+    if ($orderby == 'work_queue') {
+        $sort_class .= ' sorted';
+    }
+    $col_count++;
+    echo '                <th style="" class="manage-column column-title column-primary sortable '.$sort_class.' ui-sortable" id="title" scope="col">'."\n";
+    echo '                    <a href="'.$url.'"><span>Work Queue</span><span class="sorting-indicator"></span></a>'."\n";
+    echo '                </th>'."\n";
+    if (empty($_GET['user_id'])) {
+        $url = add_query_arg(bbconnect_workqueues_get_sorting_args('created_by', 'asc', $sort_class));
+        if (!empty($_GET['orderby']) && $_GET['orderby'] == 'created_by') {
+            $sort_class .= ' sorted';
+        }
+        $col_count++;
+        echo '                <th style="" class="manage-column column-title sortable '.$sort_class.' ui-sortable" id="title" scope="col">'."\n";
+        echo '                    <a href="'.$url.'"><span>User</span><span class="sorting-indicator"></span></a>'."\n";
+        echo '                </th>'."\n";
+    }
+    $col_count++;
+    echo '                <th style="" class="manage-column" id="comments" scope="col">Details</th>'."\n";
+    $url = add_query_arg(bbconnect_workqueues_get_sorting_args('date_created', 'asc', $sort_class));
+    if ($orderby == 'date_created') {
+        $sort_class .= ' sorted';
+    }
+    $col_count++;
+    echo '                <th style="" class="manage-column column-date sortable '.$sort_class.' ui-sortable" id="date" scope="col"><a href="'.$url.'"><span>Date</span><span class="sorting-indicator"></span></a></th>'."\n";
+    echo '            </tr>'."\n";
+    $table_headers = ob_get_clean();
+
+    echo '    <table class="wp-list-table widefat fixed striped action_items">'."\n";
+    echo '        <thead>'."\n";
+    echo $table_headers;
+    echo '        </thead>'."\n";
+    echo '        <tbody id="the-list">'."\n";
+    if (count($tasks) == 0) {
+        echo '            <tr class="no-items">'."\n";
+        echo '                <td class="colspanchange" colspan="'.$col_count.'">No items found</td>'."\n";
+        echo '            </tr>'."\n";
+    } else {
+        $pages = array_chunk($tasks, $page_size);
+        $users = $forms = array();
+        foreach ($pages[$paged-1] as $task) {
+            if (is_array($task)) {
+                if (empty($_GET['user_id'])) {
+                    $crossover_action_url = '/wp-admin/users.php?page=bbconnect_edit_user&user_id='.$task['created_by'].'&tab=work_queues';
+                    $crossover_action_label = 'View User';
+                } else {
+                    $crossover_action_url = '/wp-admin/users.php?page=work_queues_submenu&queue='.urlencode($task['work_queue']).'&form_id='.$task['form_id'];
+                    $crossover_action_label = 'View Work Queue';
+                }
+                $task_date = bbconnect_get_datetime($task['date_created'], bbconnect_get_timezone('UTC')); // We're assuming DB is configured to use UTC...
+                $task_date->setTimezone(bbconnect_get_timezone()); // Convert to local timezone
+                $task_ids[] = $task['id'];
+                if (!isset($users[$task['created_by']])) {
+                    $users[$task['created_by']] = get_userdata($task['created_by']);
+                }
+                if (!isset($forms[$task['form_id']])) {
+                    $forms[$task['form_id']] = GFAPI::get_form($task['form_id']);
+                }
+                echo '            <tr class="type-page status-publish hentry iedit author-other level-0" id="note-'.$task['id'].'">'."\n";
+                echo '                <th scope="row" class="check-column">';
+                echo '                    <input id="cb-select-'.$task['id'].'" name="task[]" value="'.$task['id'].'" type="checkbox">';
+                echo '                </th>'."\n";
+                $queue_filter_url = add_query_arg(array('queue' => urlencode($task['work_queue']), 'form_id' => $task['form_id']));
+                echo '                <td class="post-title has-row-actions page-title column-title"><strong><a href="'.$queue_filter_url.'">'.$task['work_queue'].' ('.$forms[$task['form_id']]['title'].')</a></strong>'."\n";
+                echo '                    <div class="row-actions">'."\n";
+                echo '                        <span class="view"><a href="'.$crossover_action_url.'" target="_blank">'.$crossover_action_label.'</a> | </span><span class="view"><a href="/wp-admin/admin.php?page=gf_entries&view=entry&id='.$task['form_id'].'&lid='.$task['id'].'" target="_blank">View Entry</a> | </span><span class="edit"><a href="#TB_inline?width=600&height=550&inlineId=work_queue_action_modal" class="workqueue_action_action thickbox action" data-task-id="'.$task['id'].'">Action</a></span>'."\n";
+                echo '                    </div>'."\n";
+                echo '                </td>'."\n";
+                if (empty($_GET['user_id'])) {
+                    echo '                <td class="post-title page-title column-title"><strong>'.$users[$task['created_by']]->display_name.'<br>'.$users[$task['created_by']]->user_email.'</strong></td>'."\n";
+                }
+                echo '                <td class="">'.$task['action_description'].'</td>'."\n";
+                echo '                <td class="post-date page-date column-date">'.$task_date->format($datetime_format).'</td>'."\n";
+                echo '            </tr>'."\n";
+            }
+        }
+    }
+    echo '        </tbody>'."\n";
+    echo '        <tfoot>'."\n";
+    echo $table_headers;
+    echo '        </tfoot>'."\n";
+    echo '    </table>'."\n";
+    echo '</form>'."\n";
+
+    // Now the modal
+?>
+    <div id="work_queue_action_modal" style="display: none;">
+        <div>
+            <h2>Actioning <span id="task_count"></span> item(s)</h2>
+            <form action="" method="post">
+                <div class="modal-row"><label for="note_content">Comments:</label><textarea id="<?php echo $modal_id ?>_comments" name="<?php echo $modal_id ?>_comments" rows="10"></textarea></div>
+                <input type="submit" class="button action" onclick="return bbconnect_workqueues_action_submit();">
+            </form>
+        </div>
+    </div>
+    <script type="text/javascript">
+        jQuery('form#posts-filter').on('submit', function() {
+            jQuery('input#form_id').val(jQuery('select#queue').find(":selected").data('form-id'));
+            return true;
+        });
+        jQuery('a.dobulkaction').on('click', function(e) {
+            switch (jQuery('select#bulk-action-selector-top').find(":selected").val()) {
+                case '-1':
+                    e.preventDefault();
+                    return false;
+                    break;
+                case 'action':
+                    var tasks = '';
+                    var task_count = 0;
+                    jQuery('input[name="task[]"]').each(function() {
+                        if (jQuery(this).prop('checked')) {
+                            console.log(this);
+                            if (tasks != '') {
+                                tasks += ',';
+                            }
+                            tasks += jQuery(this).val();
+                            task_count++;
+                        }
+                    });
+                    if (task_count == 0) {
+                        e.preventDefault();
+                        return false;
+                    }
+                    jQuery('input#selected_tasks').val(tasks);
+                    jQuery('span#task_count').html(task_count);
+                    break;
+            }
+        });
+        jQuery('a.workqueue_action_action').click(function() {
+            jQuery('input#selected_tasks').val(jQuery(this).data('task-id'));
+            jQuery('span#task_count').html('1');
+        });
+        function bbconnect_workqueues_action_submit() {
+            var data = {
+                    'action': 'close_action_notes',
+                    'comments': jQuery('textarea[name=<?php echo $modal_id; ?>_comments]').val(),
+                    'tasks': jQuery('input#selected_tasks').val()
+            };
+            jQuery.post(ajaxurl, data, function(response) {
+                if (response == 0) {
+                    tb_remove();
+                    window.location.reload();
+                } else {
+                    alert(response);
+                }
+            });
+            return false;
+        }
+    </script>
+<?php
 }
 
 add_action('wp_ajax_close_action_notes', 'bbconnect_workqueues_close_action_notes');
