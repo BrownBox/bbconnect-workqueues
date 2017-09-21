@@ -116,9 +116,6 @@ function bbconnect_workqueues_output_action_items($tasks) {
 ?>
 <style type="text/css">
 .tablenav a.button.dobulkaction {display: inline-block;}
-table.action_items {width: 100%;}
-table.action_items th {text-align: left; width: 30%;}
-#comments {min-width: 65%; width: 65%;}
 </style>
 <?php
     add_thickbox(); // Make sure modal library is loaded
