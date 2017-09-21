@@ -1,9 +1,11 @@
 <?php
-function bbconnect_workqueues_get_queues() {
-    $todos = bbconnect_workqueues_get_todos();
+function bbconnect_workqueues_get_queues(array $tasks = array()) {
+    if (empty($tasks)) {
+        $tasks = bbconnect_workqueues_get_todos();
+    }
     $queues = array();
-    foreach ($todos as $todo) {
-        $queues[$todo['work_queue']][$todo['form_id']][] = $todo;
+    foreach ($tasks as $task) {
+        $queues[$task['work_queue']][$task['form_id']][] = $task;
     }
     ksort($queues);
     return $queues;
@@ -29,15 +31,20 @@ function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $fo
             ),
     );
     if (!empty($user_id)) {
+        // Using array for created_by doesn't work as GF forces it to be a string which results in only the first value being matched :-(
+//         $op = is_array($user_id) ? 'in' : '=';
         $search_criteria['field_filters'][] = array(
                 'key' => 'created_by',
                 'value' => $user_id,
+//                 'operator' => $op,
         );
     }
     if (!empty($work_queue)) {
+        $op = is_array($work_queue) ? 'in' : '=';
         $search_criteria['field_filters'][] = array(
                 'key' => 'work_queue',
                 'value' => $work_queue,
+                'operator' => $op,
         );
     }
 
@@ -64,7 +71,7 @@ function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $fo
     $entries = array();
     do {
         $paging = array('offset' => $offset, 'page_size' => $page_size);
-        $entries += GFAPI::get_entries($form_id, $search_criteria, $sorting, $paging, $total_count);
+        $entries = array_merge($entries, GFAPI::get_entries($form_id, $search_criteria, $sorting, $paging, $total_count));
         $offset += $page_size;
     } while ($offset < $total_count);
 
@@ -361,10 +368,13 @@ function bbconnect_workqueues_close_action_notes() {
         echo 'Invalid data. Please try again.';
         return;
     }
+    return bbconnect_workqueues_process_close_action_notes($task_ids, $comments);
+}
 
+function bbconnect_workqueues_process_close_action_notes($task_ids, $comments) {
     $current_user = wp_get_current_user();
 
-    // Loop through notes
+    // Loop through todos
     foreach ($task_ids as $task_id) {
         $entry = GFAPI::get_entry($task_id);
         $entry['action_status'] = 'todone';
@@ -373,14 +383,16 @@ function bbconnect_workqueues_close_action_notes() {
         GFFormsModel::add_note($task_id, $current_user->ID, $current_user->display_name, 'Actioned on '.date('Y-m-d').' with the following comment:'."\n\n".$comments);
 
         // @todo Track activity
-//         $post_content = $comments."\n\n".'Closed action "'.$note->post_title.'" from '.$note->post_date;
+        //         $post_content = $comments."\n\n".'Closed action "'.$note->post_title.'" from '.$note->post_date;
     }
     return true;
 }
 
-function bbconnect_helper_work_queue() {
+function bbconnect_helper_work_queue(array $queues = array()) {
     $work_queues = array();
-    $queues = bbconnect_workqueues_get_queues();
+    if (empty($queues)) {
+        $queues = bbconnect_workqueues_get_queues();
+    }
     foreach ($queues as $queue_name => $forms) {
         foreach ($forms as $form_id => $tasks) {
             $form = GFAPI::get_form($form_id);
@@ -490,10 +502,15 @@ function bbconnect_workqueues_meta_multi_op($multi_op, $user_meta) {
     return $multi_op;
 }
 
+global $search_tasks; // Hack to track matched task IDs to push into the modal
+$search_tasks = array();
 add_filter('bbconnect_field_value', 'bbconnect_workqueues_field_value', 10, 3);
 function bbconnect_workqueues_field_value($value, $key, $current_member) {
     if ('bbconnect_bb_work_queue' == $key) {
+        global $search_tasks;
         $todos = bbconnect_workqueues_get_todos($current_member->ID);
+        $search_tasks = array_merge($search_tasks, $todos);
+        $queues = array();
         foreach ($todos as $todo) {
             $queues[$todo['work_queue']] = $todo['work_queue'];
         }
@@ -503,12 +520,39 @@ function bbconnect_workqueues_field_value($value, $key, $current_member) {
     return $value;
 }
 
-add_filter('bbconnect_report_quicklink_args', 'bbconnect_workqueues_report_quicklink_args', 10, 2);
-function bbconnect_workqueues_report_quicklink_args($args, $member_search) {
-    // @todo
+add_filter('bbconnect_report_quicklink_args', 'bbconnect_workqueues_report_quicklink_args', 10, 3);
+function bbconnect_workqueues_report_quicklink_args($args, $member_search, $post_vars) {
+    foreach ($post_vars['search'] as $var_details) {
+        if ($var_details['field'] == 'bb_work_queue') { // If the work queue field is in the search results, add task IDs to args so we can process them via the quicklink
+            if ($var_details['operator'] == 'is') { // Filtering on Work Queues - only include the selected ones
+                $work_queues = array();
+                $forms = array();
+                global $search_tasks;
+                $tasks = $search_tasks;
+                $selected_queues = $var_details['query'];
+                foreach ($selected_queues as $queue) {
+                    list($form_id, $queue_name) = explode(':', $queue, 2);
+                    if (!isset($forms[$form_id])) {
+                        $form = GFAPI::get_form($form_id);
+                    }
+                    $work_queues[$queue] = $queue_name.' ('.$form['title'].')';
+                }
+            } else { // Just showing Work Queues - include all for matching users
+                global $search_tasks;
+                $tasks = $search_tasks;
+                $queues = bbconnect_workqueues_get_queues($tasks);
+                $work_queues = bbconnect_helper_work_queue($queues);
+            }
+            $task_ids = array();
+            foreach ($tasks as $task) {
+                $task_ids[] = $task['id'];
+            }
+            $args['work_queues'] = $work_queues;
+            $args['task_ids'] = implode(',', $task_ids);
+        }
+    }
     return $args;
 }
-
 
 add_filter('bbconnect_filter_process_wp_col', 'bbconnect_workqueues_filter_process_wp_col', 10, 3);
 function bbconnect_workqueues_filter_process_wp_col($wp_col, $user_meta, $value) {
@@ -534,7 +578,7 @@ function bbconnect_workqueues_filter_process_op($op, $user_meta, $value) {
 add_filter('bbconnect_filter_process_q_val', 'bbconnect_workqueues_filter_process_q_val', 10, 3);
 function bbconnect_workqueues_filter_process_q_val($q_val, $user_meta, $subvalue) {
     if ('bb_work_queue' == $user_meta['meta_key']) {
-        list($form_id, $work_queue) = explode(':', $subvalue);
+        list($form_id, $work_queue) = explode(':', $subvalue, 2);
         $todos = bbconnect_workqueues_get_todos(null, $work_queue, $form_id);
         $work_queue_users = array();
         foreach ($todos as $todo) {

@@ -31,6 +31,8 @@ function bbconnect_workqueues_init() {
         // Plugin updates
         new BbConnectUpdates(__FILE__, 'BrownBox', 'bbconnect-workqueues');
     }
+    $quicklinks_dir = BBCONNECT_WORKQUEUES_DIR.'quicklinks/';
+    bbconnect_quicklinks_recursive_include($quicklinks_dir);
 }
 add_action('plugins_loaded', 'bbconnect_workqueues_init');
 
