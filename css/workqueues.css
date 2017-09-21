@@ -1,0 +1,4 @@
+.tablenav a.button.dobulkaction {display: inline-block;}
+.dashicons.bbc-workqueue-item {border-radius: 50%; padding: 5px;}
+.dashicons.bbc-workqueue-todo {border: 1px solid #aaa; color: #aaa;}
+.dashicons.bbc-workqueue-todone {background-color: green; border: 1px solid green; color: white; padding: 5px;}

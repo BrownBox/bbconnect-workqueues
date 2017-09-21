@@ -112,12 +112,6 @@ function bbconnect_workqueues_get_sorting_args($field, $order = 'asc', &$current
 }
 
 function bbconnect_workqueues_output_action_items($tasks) {
-    // First some custom styles
-?>
-<style type="text/css">
-.tablenav a.button.dobulkaction {display: inline-block;}
-</style>
-<?php
     add_thickbox(); // Make sure modal library is loaded
     $queues = bbconnect_workqueues_get_queues();
     $datetime_format = get_option('date_format').' '.get_option('time_format');
@@ -370,17 +364,12 @@ function bbconnect_workqueues_close_action_notes() {
 
 function bbconnect_workqueues_process_close_action_notes($task_ids, $comments) {
     $current_user = wp_get_current_user();
-
-    // Loop through todos
     foreach ($task_ids as $task_id) {
         $entry = GFAPI::get_entry($task_id);
         $entry['action_status'] = 'todone';
         GFAPI::update_entry($entry);
 
         GFFormsModel::add_note($task_id, $current_user->ID, $current_user->display_name, 'Actioned on '.date('Y-m-d').' with the following comment:'."\n\n".$comments);
-
-        // @todo Track activity
-        //         $post_content = $comments."\n\n".'Closed action "'.$note->post_title.'" from '.$note->post_date;
     }
     return true;
 }
@@ -584,4 +573,15 @@ function bbconnect_workqueues_filter_process_q_val($q_val, $user_meta, $subvalue
         $q_val = '('.implode(',', $work_queue_users).')';
     }
     return $q_val;
+}
+
+add_filter('bbconnect_form_activity_details', 'bbconnect_workqueues_form_activity_details', 10, 4);
+function bbconnect_workqueues_form_activity_details($activity, $form_id, $entry, $agent) {
+    if (!empty($entry['work_queue'])) {
+        $activity['extra'] = '<i class="dashicons dashicons-yes bbc-workqueue-item bbc-workqueue-'.$entry['action_status'].'" title="'.$entry['work_queue'].'"></i>';
+        if ($entry['action_status'] == 'todo') {
+            $activity['extra'] = '<a href="?page=bbconnect_edit_user&user_id='.$activity['user_id'].'&tab=work_queues&form_id='.$entry['form_id'].'&queue='.urlencode($entry['work_queue']).'">'.$activity['extra'].'</a>';
+        }
+    }
+    return $activity;
 }

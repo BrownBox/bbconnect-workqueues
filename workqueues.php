@@ -46,3 +46,8 @@ function bbconnect_workqueues_deactivate_notice() {
         unset($_GET['activate']);
     }
 }
+
+add_action('admin_enqueue_scripts', 'bbconnect_workqueues_enqueue_styles');
+function bbconnect_workqueues_enqueue_styles() {
+    wp_enqueue_style('bbconnect-workqueues', BBCONNECT_WORKQUEUES_URL.'css/workqueues.css', array(), BBCONNECT_WORKQUEUES_VERSION, 'screen');
+}
