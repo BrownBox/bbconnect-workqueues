@@ -101,7 +101,7 @@ function bbconnect_workqueues_gf_addon_launch() {
             return $settings;
         }
 
-        public function save_form_settings($form) {
+        public function save_form_settings($form, $settings) {
             $form['bbconnect_workqueues_field'] = rgpost('bbconnect_workqueues_field');
             $form['bbconnect_workqueues_status'] = rgpost('bbconnect_workqueues_status');
             $form['bbconnect_workqueues_description'] = rgpost('bbconnect_workqueues_description');
@@ -130,7 +130,7 @@ function bbconnect_workqueues_gf_addon_launch() {
                                     'is',
                                     'isnot',
                             ),
-                            'choices' => $this->get_action_statuses,
+                            'choices' => $this->get_action_statuses(),
                     ),
             );
             $entry_meta['action_description'] = array(
