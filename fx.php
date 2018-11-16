@@ -582,7 +582,7 @@ function bbconnect_workqueues_form_activity_details($activities) {
     foreach ($activities as &$activity) {
         if ($activity['type'] == 'form' && !empty($activity['external_id'])) {
             $entry = GFAPI::get_entry($activity['external_id']);
-            if (!empty($entry['work_queue'])) {
+            if (is_array($entry) && !empty($entry['work_queue'])) {
                 $activity['extra'] = '<i class="dashicons dashicons-yes bbc-workqueue-item bbc-workqueue-'.$entry['action_status'].'" title="'.$entry['work_queue'].'"></i>';
                 if ($entry['action_status'] == 'todo') {
                     $activity['extra'] = '<a href="?page=bbconnect_edit_user&user_id='.$activity['user_id'].'&tab=work_queues&form_id='.$entry['form_id'].'&queue='.urlencode($entry['work_queue']).'">'.$activity['extra'].'</a>';
