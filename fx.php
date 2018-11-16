@@ -89,6 +89,8 @@ function bbconnect_workqueues_insert_action_note($user_id, $title, $description,
             'input_7' => $title,
             'input_8' => $description,
             'action_status' => $action_required ? 'todo' : 'todone',
+            'agent_id' => get_current_user_id(),
+            'created_by' => $user_id,
     );
     GFAPI::submit_form($action_form_id, $entry);
 }
