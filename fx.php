@@ -81,6 +81,7 @@ function bbconnect_workqueues_get_todos($user_id = null, $work_queue = null, $fo
 function bbconnect_workqueues_insert_action_note($user_id, $title, $description, $work_queue = '', $action_required = false) {
     $action_form_id = bbconnect_get_action_form();
     $user = new WP_User($user_id);
+    $orig_post = $_POST;
     $_POST = array(); // Hack to allow multiple form submissions via API in single process
     $entry = array(
             'input_18' => $user->user_email,
@@ -88,11 +89,20 @@ function bbconnect_workqueues_insert_action_note($user_id, $title, $description,
             'input_5' => $work_queue,
             'input_7' => $title,
             'input_8' => $description,
-            'action_status' => $action_required ? 'todo' : 'todone',
             'agent_id' => get_current_user_id(),
             'created_by' => $user_id,
     );
-    GFAPI::submit_form($action_form_id, $entry);
+    $action_status = $action_required ? 'todo' : 'todone';
+    $set_action_status = function($entry, $form) use ($work_queue, $action_status, $description) {
+        gform_update_meta($entry['id'], 'work_queue', $work_queue, $form['id']);
+        gform_update_meta($entry['id'], 'action_status', $action_status, $form['id']);
+        gform_update_meta($entry['id'], 'action_description', $description, $form['id']);
+    };
+    add_action('gform_after_submission', $set_action_status, 99, 2);
+    $result = GFAPI::submit_form($action_form_id, $entry);
+    remove_action('gform_after_submission', $set_action_status, 99, 2);
+    $_POST = $orig_post;
+    return $result;
 }
 
 function bbconnect_workqueues_get_sorting_args($field, $order = 'asc', &$current_sort) {
