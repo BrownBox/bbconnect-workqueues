@@ -15,7 +15,7 @@ function bbconnect_workqueues_gf_addon_launch() {
         public function init() {
             // Custom form settings
             add_filter('gform_form_settings', array($this, 'custom_form_settings'), 10, 2);
-            add_filter('gform_pre_form_settings_save', array($this, 'save_form_settings'));
+            add_filter('gform_pre_form_settings_save', array($this, 'save_form_settings'), 10, 2);
 
             // Custom entry meta
             add_filter('gform_entries_field_value', array($this, 'filter_field_values'), 10, 4);
@@ -101,7 +101,7 @@ function bbconnect_workqueues_gf_addon_launch() {
             return $settings;
         }
 
-        public function save_form_settings($form, $settings) {
+        public function save_form_settings($form, $settings = array()) {
             $form['bbconnect_workqueues_field'] = rgpost('bbconnect_workqueues_field');
             $form['bbconnect_workqueues_status'] = rgpost('bbconnect_workqueues_status');
             $form['bbconnect_workqueues_description'] = rgpost('bbconnect_workqueues_description');
