@@ -3,12 +3,12 @@
  * Plugin Name: Connexions Action Notes & Work Queues
  * Plugin URI: http://connexionscrm.com/
  * Description: Keep your CRM informed and up to date with online and offline interactions with every contact.
- * Version: 0.1.2
+ * Version: 0.1.3
  * Author: Brown Box
  * Author URI: http://brownbox.net.au
  * License: Proprietary Brown Box
  */
-define('BBCONNECT_WORKQUEUES_VERSION', '0.1.2');
+define('BBCONNECT_WORKQUEUES_VERSION', '0.1.3');
 define('BBCONNECT_WORKQUEUES_DIR', plugin_dir_path(__FILE__));
 define('BBCONNECT_WORKQUEUES_URL', plugin_dir_url(__FILE__));
 
